@@ -1,0 +1,7 @@
+{
+  "name": "CustomRPC",
+  "description": "Tùy chỉnh Rich Presence (RPC) trên Discord Mobile — hỗ trợ game name, details, state, timestamp và activity type.",
+  "author": "YourName",
+  "main": "index.js",
+  "hash": "auto-generated"
+}
