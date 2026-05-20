@@ -1,12 +1,7 @@
 {
   "name": "CustomRPC",
-  "description": "Tùy chỉnh Rich Presence (RPC) trên Discord Mobile – hỗ trợ game name, details, state, timestamp và activity type.",
-  "authors": [
-    {
-      "name": "tanhoangviet",
-      "id": "0"
-    }
-  ],
+  "description": "Tùy chỉnh Rich Presence cho Discord Mobile",
+  "authors": [{ "name": "tanhoangviet", "id": "0" }],
   "main": "index.js",
-  "version": "1.0.2"
+  "version": "1.0.0"
 }
