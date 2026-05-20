@@ -1,12 +1,12 @@
-// ─── Lấy các module hệ thống từ biến Global của Client Mod ──────────────────
+var rpcInterval = null;
+var patches = [];
+var startTime = null;
+
+// ─── Lấy các module hệ thống từ biến Global ────────────────────────────────
 var vendettaObj = window.vendetta || globalThis.vendetta || window.purpled;
 var metro = vendettaObj ? vendettaObj.metro : null;
 var logger = vendettaObj ? vendettaObj.logger : console;
 var commands = vendettaObj ? vendettaObj.commands : null;
-
-// ─── Bộ nhớ quản lý vòng đời ───────────────────────────────────────────────
-var patches = [];
-var startTime = null;
 
 // ─── Metro: Flux Dispatcher ─────────────────────────────────────────────────
 var Dispatcher = metro ? (
@@ -16,6 +16,18 @@ var Dispatcher = metro ? (
 
 if (!Dispatcher) {
   logger.error("[CustomRPC] FATAL: Không tìm được FluxDispatcher trong Metro!");
+}
+
+// ─── Core: Xử lý chuỗi ${code} ──────────────────────────────────────────────
+function parseEvalString(str) {
+    if (!str) return "";
+    return str.replace(/\${(.*?)}/g, function(match, code) {
+        try {
+            return eval(code);
+        } catch (error) {
+            return "[Lỗi: " + error.message + "]";
+        }
+    });
 }
 
 // ─── Core: Gửi RPC lên Discord ──────────────────────────────────────────────
@@ -80,7 +92,7 @@ function onLoad() {
       {
         name: "action",
         description: "on = bật | off = tắt",
-        type: 3, // STRING
+        type: 3, 
         required: true,
         choices: [
           { name: "on", value: "on" },
@@ -131,7 +143,6 @@ function onLoad() {
 function onUnload() {
   clearRPC();
 
-  // Hủy đăng ký lệnh
   for (var i = 0; i < patches.length; i++) {
     if (typeof patches[i] === "function") {
       patches[i]();
@@ -142,7 +153,7 @@ function onUnload() {
   logger.log("[CustomRPC] Plugin đã dọn dẹp sạch và tắt thành công.");
 }
 
-// ─── Giao diện Settings chuyển đổi từ JSX sang React.createElement ──────────
+// ─── Màn hình Giao diện Settings (Sửa lỗi không bấm được) ───────────────────
 function SettingsComponent() {
   try {
     var React = window.purpled?.metro?.findByProps("createElement") || globalThis.React;
@@ -156,14 +167,21 @@ function SettingsComponent() {
       );
     }
   } catch (e) {
-    logger.error("[CustomRPC] Lỗi UI Settings: " + e.message);
+    if (logger && logger.error) logger.error("[CustomRPC] Lỗi UI Settings: " + e.message);
   }
   return null;
 }
 
-// ─── Xuất Plugin cho Kettu loader ──────────────────────────────────────────
-module.exports = {
+// ─── Đóng gói hoàn chỉnh đầy đủ thuộc tính ──────────────────────────────────
+var pluginObject = {
   onLoad: onLoad,
   onUnload: onUnload,
-  settingsComponent: SettingsComponent
+  settingsComponent: SettingsComponent, // Định dạng chuẩn cho client mod đã build
+  settings: SettingsComponent           // Dự phòng cho loader đọc thô
 };
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = pluginObject;
+}
+
+pluginObject;
