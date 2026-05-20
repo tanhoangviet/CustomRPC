@@ -1,173 +1,128 @@
-/**
- * CustomRPC — Discord Mobile Plugin
- * Hỗ trợ: Vendetta / Bunny / Kettu
- *
- * Nguyên lý hoạt động:
- *   Dispatch action LOCAL_ACTIVITY_UPDATE qua FluxDispatcher
- *   để ghi đè Rich Presence hiện tại của client.
- */
+// Khai báo biến toàn cục trước
+let rpcInterval = null;
 
-import { metro, logger } from "@vendetta";
-import { commands } from "@vendetta/commands";
-import Settings from "./Settings";
-
-// ─── Bộ nhớ quản lý vòng đời ───────────────────────────────────────────────
-let patches    = [];
-let startTime  = null; // Lưu thời điểm bắt đầu để tính elapsed time
-
-// ─── Metro: Flux Dispatcher ─────────────────────────────────────────────────
-// Tìm FluxDispatcher — dùng để dispatch action RPC lên Discord client
-const FluxDispatcher = metro.findByProps("dispatch", "subscribe", "register");
-
-// Fallback: thử tìm qua tên khác nếu build Discord thay đổi
-const Dispatcher = FluxDispatcher
-  ?? metro.findByProps("_dispatch", "subscribe")
-  ?? null;
-
-if (!Dispatcher) {
-  logger.error("[CustomRPC] FATAL: Không tìm được FluxDispatcher trong Metro!");
-}
-
-// ─── Core: Gửi RPC lên Discord ──────────────────────────────────────────────
-/**
- * @param {Object} config
- * @param {string}  config.name       - Tên activity (bắt buộc)
- * @param {string}  [config.details]  - Dòng mô tả 1
- * @param {string}  [config.state]    - Dòng mô tả 2
- * @param {number}  [config.type]     - 0=Playing 1=Streaming 2=Listening 3=Watching
- * @param {boolean} [config.timestamp]- Có hiện elapsed time không
- */
-function applyRPC(config) {
-  if (!Dispatcher) return;
-
-  if (config.timestamp && !startTime) {
-    startTime = Date.now();
-  }
-  if (!config.timestamp) {
-    startTime = null;
-  }
-
-  const activity = {
-    name:    config.name,
-    type:    config.type ?? 0,
-    details: config.details || undefined,
-    state:   config.state   || undefined,
-    ...(startTime ? { timestamps: { start: startTime } } : {}),
-
-    // application_id giả — một số build yêu cầu trường này
-    // Thay bằng App ID thật nếu bạn có Discord Application
-    application_id: "0",
-  };
-
-  try {
-    Dispatcher.dispatch({
-      type:     "LOCAL_ACTIVITY_UPDATE",
-      activity: activity,
+// Hàm xử lý bóc tách chuỗi ${code}
+function parseEvalString(str) {
+    if (!str) return "";
+    return str.replace(/\${(.*?)}/g, (match, code) => {
+        try {
+            return eval(code);
+        } catch (error) {
+            return "[Lỗi: " + error.message + "]";
+        }
     });
-    logger.log("[CustomRPC] Activity đã được gửi:", JSON.stringify(activity));
-  } catch (err) {
-    logger.error("[CustomRPC] Lỗi khi dispatch activity:", err.message);
-  }
 }
 
-// ─── Core: Xóa RPC ──────────────────────────────────────────────────────────
-function clearRPC() {
-  if (!Dispatcher) return;
-  startTime = null;
-  try {
-    Dispatcher.dispatch({
-      type:     "LOCAL_ACTIVITY_UPDATE",
-      activity: null,
-    });
-    logger.log("[CustomRPC] Activity đã được xóa.");
-  } catch (err) {
-    logger.error("[CustomRPC] Lỗi khi xóa activity:", err.message);
-  }
-}
-
-// ─── Plugin Export ───────────────────────────────────────────────────────────
-export default {
-  // ── onLoad: đăng ký lệnh + áp dụng RPC đã lưu từ lần trước ──────────────
-  onLoad: () => {
-    logger.log("[CustomRPC] Plugin đang khởi động...");
-
-    // Đăng ký lệnh /rpc để toggle nhanh từ chat
-    const rpcCommand = commands.registerCommand({
-      name:        "rpc",
-      description: "Bật / Tắt Custom RPC nhanh từ chat",
-      options: [
-        {
-          name:        "action",
-          description: "on = bật | off = tắt",
-          type:        3, // STRING
-          required:    true,
-          choices: [
-            { name: "on",  value: "on"  },
-            { name: "off", value: "off" },
-          ],
-        },
-        {
-          name:        "name",
-          description: "Tên activity (chỉ cần khi action=on)",
-          type:        3,
-          required:    false,
-        },
-        {
-          name:        "details",
-          description: "Details (dòng 1)",
-          type:        3,
-          required:    false,
-        },
-        {
-          name:        "state",
-          description: "State (dòng 2)",
-          type:        3,
-          required:    false,
-        },
-      ],
-
-      execute: (args, _ctx) => {
-        const get = (name) => args.find(a => a.name === name)?.value;
-        const action = get("action");
-
-        if (action === "off") {
-          clearRPC();
-          return { content: "🔴 Custom RPC đã tắt." };
+// Hàm chạy chính của plugin khi được Kettu kích hoạt
+function onLoad() {
+    try {
+        // Lấy biến môi trường an toàn bên trong onLoad
+        var vendettaObj = window.vendetta || globalThis.vendetta || window.purpled;
+        if (!vendettaObj || !vendettaObj.metro) {
+            console.error("[CustomRPC] Không tìm thấy nền tảng Vendetta/Kettu");
+            return;
         }
 
-        const activityName = get("name") || "Discord Mobile";
-        applyRPC({
-          name:      activityName,
-          details:   get("details"),
-          state:     get("state"),
-          type:      0,
-          timestamp: true,
-        });
+        var metro = vendettaObj.metro;
+        var commands = vendettaObj.commands;
+        var Dispatcher = metro.findByProps("dispatch", "subscribe");
 
-        return {
-          content: `✅ RPC đã bật: **${activityName}**`,
+        if (!Dispatcher) {
+            console.error("[CustomRPC] Không tìm thấy Discord Dispatcher");
+            return;
+        }
+
+        // Cấu hình nội dung hiển thị
+        var rpcConfig = {
+            details: "Đang code dự án: ${1 + 1} giờ liền",
+            state: "Bây giờ là: ${new Date().toLocaleTimeString()}"
         };
-      },
-    });
 
-    patches.push(rpcCommand);
-    logger.log("[CustomRPC] Khởi động hoàn tất. Lệnh /rpc đã đăng ký.");
-  },
+        // Hàm cập nhật trạng thái
+        var updateCustomRPC = function() {
+            var finalDetails = parseEvalString(rpcConfig.details);
+            var finalState = parseEvalString(rpcConfig.state);
 
-  // ── onUnload: dọn dẹp toàn bộ ────────────────────────────────────────────
-  onUnload: () => {
-    // Xóa RPC khỏi Discord trước
-    clearRPC();
+            Dispatcher.dispatch({
+                type: "LOCAL_ACTIVITY_UPDATE",
+                activity: {
+                    name: "CustomRPC Eval",
+                    type: 0, // 0: Playing
+                    details: finalDetails,
+                    state: finalState,
+                    assets: {
+                        large_image: "https://github.com/tanhoangviet.png",
+                        large_text: "Đang chạy mượt mà!"
+                    }
+                }
+            });
+        };
 
-    // Hủy đăng ký lệnh và patches
-    for (const unpatch of patches) {
-      if (typeof unpatch === "function") unpatch();
+        // Chạy ngay lập tức lần đầu
+        updateCustomRPC();
+
+        // Thiết lập vòng lặp mỗi 5 giây
+        if (rpcInterval) clearInterval(rpcInterval);
+        rpcInterval = setInterval(updateCustomRPC, 5000);
+
+        // Đăng ký lệnh chat /eval nếu có hỗ trợ
+        if (commands) {
+            commands.registerCommand({
+                name: "eval",
+                displayName: "eval",
+                description: "Chạy nhanh code JS trên điện thoại",
+                options: [{ name: "code", displayName: "code", description: "Đoạn code cần chạy", type: 3, required: true }],
+                applicationId: "-1",
+                inputType: 1,
+                execute: function(args) {
+                    var codeInput = args.find(a => a.name === "code")?.value;
+                    try {
+                        var output = eval(codeInput);
+                        return { content: "📥 **Input:** `" + codeInput + "` \n📤 **Output:** `" + output + "`" };
+                    } catch (err) {
+                        return { content: "❌ **Lỗi:** `" + err.message + "`" };
+                    }
+                }
+            });
+        }
+
+    } catch (crashError) {
+        console.error("[CustomRPC CRASH]: " + crashError.message);
     }
-    patches = [];
+}
 
-    logger.log("[CustomRPC] Plugin đã dọn dẹp sạch và tắt thành công.");
-  },
+// Hàm dọn dẹp khi tắt plugin
+function onUnload() {
+    if (rpcInterval) clearInterval(rpcInterval);
+    try {
+        var vendettaObj = window.vendetta || globalThis.vendetta || window.purpled;
+        var Dispatcher = vendettaObj?.metro?.findByProps("dispatch", "subscribe");
+        if (Dispatcher) {
+            Dispatcher.dispatch({
+                type: "LOCAL_ACTIVITY_UPDATE",
+                activity: null
+            });
+        }
+    } catch(e) {}
+}
 
-  // ── Gắn trang Settings và truyền applyRPC / clearRPC vào ─────────────────
-  settings: () => <Settings applyRPC={applyRPC} clearRPC={clearRPC} />,
-};
+// Tạo một màn hình Settings trống để nút Configure không bị lỗi văng app
+function DummySettings() {
+    try {
+        var React = window.purpled?.metro?.findByProps("createElement") || globalThis.React;
+        var { Text } = window.purpled?.metro?.findByProps("Text") || {};
+        if (React && Text) {
+            return React.createElement(Text, null, "Cấu hình Custom RPC Eval thành công!");
+        }
+    } catch(e) {}
+    return null;
+}
+
+// Export chuẩn chỉ cho bộ cài đặt của Kettu nhận diện
+if (typeof module !== "undefined") {
+    module.exports = {
+        onLoad: onLoad,
+        onUnload: onUnload,
+        settingsComponent: DummySettings
+    };
+}
