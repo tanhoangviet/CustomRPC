@@ -1,17 +1,23 @@
-var rpcInterval = null;
 var patches = [];
 var startTime = null;
 
+// ─── Thao tác an toàn với biến Global của Client Mod ───────────────────────
 var vendettaObj = window.vendetta || globalThis.vendetta || window.purpled;
 var metro = vendettaObj ? vendettaObj.metro : null;
 var logger = vendettaObj ? vendettaObj.logger : console;
 var commands = vendettaObj ? vendettaObj.commands : null;
 
-var Dispatcher = metro ? (
-  metro.findByProps("dispatch", "subscribe", "register") || 
-  metro.findByProps("_dispatch", "subscribe")
-) : null;
+// Lấy luồng FluxDispatcher an toàn từ thư viện chung
+var commonModules = metro ? metro.common : null;
+var Dispatcher = commonModules && commonModules.Flux ? commonModules.Flux.Dispatcher : (
+  metro ? (metro.findByProps("dispatch", "subscribe", "register") || metro.findByProps("_dispatch", "subscribe")) : null
+);
 
+if (!Dispatcher) {
+  logger.error("[CustomRPC] FATAL: Không tìm thấy FluxDispatcher!");
+}
+
+// ─── Core: Gửi RPC lên Discord ──────────────────────────────────────────────
 function applyRPC(config) {
   if (!Dispatcher) return;
   if (config.timestamp && !startTime) startTime = Date.now();
@@ -30,10 +36,11 @@ function applyRPC(config) {
   try {
     Dispatcher.dispatch({ type: "LOCAL_ACTIVITY_UPDATE", activity: activity });
   } catch (err) {
-    if (logger.error) logger.error("[CustomRPC] Lỗi RPC: " + err.message);
+    logger.error("[CustomRPC] Lỗi gửi activity: " + err.message);
   }
 }
 
+// ─── Core: Xóa RPC ──────────────────────────────────────────────────────────
 function clearRPC() {
   if (!Dispatcher) return;
   startTime = null;
@@ -42,6 +49,7 @@ function clearRPC() {
   } catch (err) {}
 }
 
+// ─── Hàm Khởi Chạy Plugin (onLoad) ─────────────────────────────────────────
 function onLoad() {
   if (!commands) return;
   var rpcCommand = commands.registerCommand({
@@ -55,9 +63,9 @@ function onLoad() {
         required: true,
         choices: [{ name: "on", value: "on" }, { name: "off", value: "off" }]
       },
-      { name: "name", description: "Tên biệt hiệu game", type: 3, required: false },
-      { name: "details", description: "Trạng thái hàng 1", type: 3, required: false },
-      { name: "state", description: "Trạng thái hàng 2", type: 3, required: false }
+      { name: "name", description: "Tên trạng thái game", type: 3, required: false },
+      { name: "details", description: "Chi tiết dòng 1", type: 3, required: false },
+      { name: "state", description: "Chi tiết dòng 2", type: 3, required: false }
     ],
     execute: function(args) {
       var get = function(name) {
@@ -79,6 +87,7 @@ function onLoad() {
   patches.push(rpcCommand);
 }
 
+// ─── Hàm Tắt Plugin (onUnload) ─────────────────────────────────────────────
 function onUnload() {
   clearRPC();
   for (var i = 0; i < patches.length; i++) {
@@ -87,26 +96,34 @@ function onUnload() {
   patches = [];
 }
 
-// Hàm vẽ giao diện thô bằng React thuần không qua Compiler JSX
-function Settings() {
+// ─── Giao diện cấu hình Settings kết nối trực tiếp với Core React Native ───
+function SettingsComponent() {
   try {
-    var React = window.purpled?.metro?.findByProps("createElement") || globalThis.React;
-    var metroModules = window.purpled?.metro?.findByProps("Text", "ScrollView");
-    if (React && metroModules) {
+    var React = (commonModules && commonModules.React) || window.React || globalThis.React;
+    var ReactNative = (commonModules && commonModules.ReactNative) || (metro && metro.findByProps("Text", "ScrollView"));
+    
+    if (React && ReactNative) {
       return React.createElement(
-        metroModules.ScrollView, 
+        ReactNative.ScrollView, 
         { style: { padding: 16 } }, 
-        React.createElement(metroModules.Text, { style: { color: "#ffffff", fontSize: 16 } }, "⚙️ Cấu hình CustomRPC hoạt động ngon lành!")
+        React.createElement(ReactNative.Text, { style: { color: "#ffffff", fontSize: 16 } }, "⚙️ Cấu hình CustomRPC hoạt động ngon lành!")
       );
     }
-  } catch (e) {}
+  } catch (e) {
+    logger.error("[CustomRPC] Lỗi nạp UI Settings: " + e.message);
+  }
   return null;
 }
 
-// Xuất bản đầy đủ các cổng kết nối giao diện cho Kettu nạp cấu hình
-module.exports = {
+// Đóng gói xuất ra cho loader đọc cấu hình
+var pluginObject = {
   onLoad: onLoad,
   onUnload: onUnload,
-  settingsComponent: Settings,
-  getSettingsComponent: function() { return Settings; }
+  settings: SettingsComponent,          // Định dạng chuẩn cho Vendetta/Bunny
+  settingsComponent: SettingsComponent   // Định dạng dự phòng cho Kettu
 };
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = pluginObject;
+}
+pluginObject;
