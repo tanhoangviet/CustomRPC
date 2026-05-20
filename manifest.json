@@ -1,6 +1,6 @@
 {
   "name": "CustomRPC",
-  "description": "Tùy chỉnh Rich Presence cho Discord Mobile",
+  "description": "Custom Rich Presence",
   "authors": [{ "name": "tanhoangviet", "id": "0" }],
   "main": "index.js",
   "version": "1.0.0"
